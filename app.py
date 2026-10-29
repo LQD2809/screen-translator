@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import threading
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import filedialog, ttk
 
 import mss
@@ -24,6 +25,18 @@ GREEN = "#3dd6a3"
 ORANGE = "#f1bb66"
 
 
+def ui_font(widget, size, weight="normal"):
+    root = widget._root()
+    fonts = getattr(root, "_screen_translator_fonts", None)
+    if fonts is None:
+        fonts = {}
+        root._screen_translator_fonts = fonts
+    key = (size, weight)
+    if key not in fonts:
+        fonts[key] = tkfont.Font(root=root, family="Segoe UI", size=size, weight=weight)
+    return fonts[key]
+
+
 class RegionSelector(tk.Toplevel):
     def __init__(self, master, on_select):
         super().__init__(master)
@@ -37,7 +50,7 @@ class RegionSelector(tk.Toplevel):
         self.canvas.pack(fill="both", expand=True)
         self.canvas.create_text(
             28, 28, anchor="nw", text="Drag to select text  ·  Esc to cancel",
-            fill="white", font=("Segoe UI", 16, "bold")
+            fill="white", font=ui_font(self, 16, "bold")
         )
         self.canvas.bind("<ButtonPress-1>", self._begin)
         self.canvas.bind("<B1-Motion>", self._drag)
@@ -90,18 +103,18 @@ class TranslationCard(tk.Toplevel):
         self.card.pack(fill="both", expand=True)
         header = tk.Frame(self.card, bg=PANEL)
         header.pack(fill="x", padx=14, pady=(12, 4))
-        tk.Label(header, text="✦", fg=ACCENT, bg=PANEL, font=("Segoe UI", 14, "bold")).pack(side="left")
-        tk.Label(header, text="TRANSLATION", fg=MUTED, bg=PANEL, font=("Segoe UI", 9, "bold")).pack(side="left", padx=7)
-        tk.Label(header, text="DRAG TO MOVE", fg="#647184", bg=PANEL, font=("Segoe UI", 8)).pack(side="right")
+        tk.Label(header, text="✦", fg=ACCENT, bg=PANEL, font=ui_font(self, 14, "bold")).pack(side="left")
+        tk.Label(header, text="TRANSLATION", fg=MUTED, bg=PANEL, font=ui_font(self, 9, "bold")).pack(side="left", padx=7)
+        tk.Label(header, text="DRAG TO MOVE", fg="#647184", bg=PANEL, font=ui_font(self, 8)).pack(side="right")
         tk.Button(
             header, text="×", command=self.withdraw, fg=MUTED, bg=PANEL,
             activeforeground=TEXT, activebackground=PANEL_ALT, relief="flat",
-            borderwidth=0, font=("Segoe UI", 12), cursor="hand2",
+            borderwidth=0, font=ui_font(self, 12), cursor="hand2",
         ).pack(side="right", padx=(8, 4))
         self.output = tk.Label(
             self.card, text="Your translation will appear here.",
             fg=TEXT, bg=PANEL, justify="left", anchor="nw",
-            wraplength=370, font=("Segoe UI", 13), padx=14, pady=10,
+            wraplength=370, font=ui_font(self, 13), padx=14, pady=10,
         )
         self.output.pack(fill="both", expand=True)
         self.opacity = ttk.Scale(self.card, from_=0.4, to=1.0, command=self._set_opacity)
@@ -132,7 +145,7 @@ class ScreenTranslatorApp(tk.Tk):
         self.geometry("760x700")
         self.minsize(650, 600)
         self.configure(bg=BG)
-        self.option_add("*Font", "Segoe UI 10")
+        self.option_add("*Font", ui_font(self, 10))
         self.region = None
         self.refresh_id = None
         self._style()
@@ -163,12 +176,12 @@ class ScreenTranslatorApp(tk.Tk):
 
         top = tk.Frame(root, bg=BG)
         top.pack(fill="x")
-        tk.Label(top, text="◈", fg=ACCENT, bg=BG, font=("Segoe UI", 25, "bold")).pack(side="left")
+        tk.Label(top, text="◈", fg=ACCENT, bg=BG, font=ui_font(self, 25, "bold")).pack(side="left")
         title_block = tk.Frame(top, bg=BG)
         title_block.pack(side="left", padx=10)
-        tk.Label(title_block, text="Screen Translator", fg=TEXT, bg=BG, font=("Segoe UI", 21, "bold")).pack(anchor="w")
+        tk.Label(title_block, text="Screen Translator", fg=TEXT, bg=BG, font=ui_font(self, 21, "bold")).pack(anchor="w")
         tk.Label(title_block, text="Translate what you see, right where you see it.", fg=MUTED, bg=BG).pack(anchor="w")
-        tk.Label(top, text="●  WINDOWS DESKTOP", fg=GREEN, bg=BG, font=("Segoe UI", 8, "bold")).pack(side="right", anchor="n", pady=9)
+        tk.Label(top, text="●  WINDOWS DESKTOP", fg=GREEN, bg=BG, font=ui_font(self, 8, "bold")).pack(side="right", anchor="n", pady=9)
 
         self._section_label(root, "01  ·  LANGUAGES")
         language_panel = tk.Frame(root, bg=PANEL, padx=16, pady=14)
@@ -176,17 +189,17 @@ class ScreenTranslatorApp(tk.Tk):
         self.source = tk.StringVar(value="en")
         self.target = tk.StringVar(value="vi")
         self.provider = tk.StringVar(value="Local (Argos)")
-        tk.Label(language_panel, text="SOURCE", fg=MUTED, bg=PANEL, font=("Segoe UI", 8, "bold")).grid(row=0, column=0, sticky="w")
-        tk.Label(language_panel, text="TARGET", fg=MUTED, bg=PANEL, font=("Segoe UI", 8, "bold")).grid(row=0, column=2, sticky="w")
+        tk.Label(language_panel, text="SOURCE", fg=MUTED, bg=PANEL, font=ui_font(self, 8, "bold")).grid(row=0, column=0, sticky="w")
+        tk.Label(language_panel, text="TARGET", fg=MUTED, bg=PANEL, font=ui_font(self, 8, "bold")).grid(row=0, column=2, sticky="w")
         self.source_box = ttk.Combobox(language_panel, textvariable=self.source, values=("en", "vi", "ja", "ko", "zh", "fr", "de", "es"), width=15)
         self.source_box.grid(row=1, column=0, sticky="ew", pady=(6, 0))
-        tk.Label(language_panel, text="→", fg=ACCENT, bg=PANEL, font=("Segoe UI", 17, "bold")).grid(row=1, column=1, padx=15)
+        tk.Label(language_panel, text="→", fg=ACCENT, bg=PANEL, font=ui_font(self, 17, "bold")).grid(row=1, column=1, padx=15)
         self.target_box = ttk.Combobox(language_panel, textvariable=self.target, values=("vi", "en", "ja", "ko", "zh", "fr", "de", "es"), width=15)
         self.target_box.grid(row=1, column=2, sticky="ew", pady=(6, 0))
         ttk.Combobox(language_panel, textvariable=self.provider, values=("Local (Argos)", "LibreTranslate"), state="readonly", width=18).grid(row=1, column=3, sticky="e", padx=(18, 0), pady=(6, 0))
         language_panel.columnconfigure(0, weight=1)
         language_panel.columnconfigure(2, weight=1)
-        tk.Label(language_panel, text="Translation engine", fg=MUTED, bg=PANEL, font=("Segoe UI", 8)).grid(row=0, column=3, sticky="e")
+        tk.Label(language_panel, text="Translation engine", fg=MUTED, bg=PANEL, font=ui_font(self, 8)).grid(row=0, column=3, sticky="e")
 
         self._section_label(root, "02  ·  CAPTURE")
         action_panel = tk.Frame(root, bg=PANEL, padx=14, pady=14)
@@ -202,7 +215,7 @@ class ScreenTranslatorApp(tk.Tk):
         self.input = tk.Text(
             text_panel, height=8, wrap="word", bg=PANEL, fg=TEXT, insertbackground=TEXT,
             selectbackground=ACCENT, relief="flat", borderwidth=0, padx=8, pady=8,
-            font=("Segoe UI", 11), undo=True,
+            font=ui_font(self, 11), undo=True,
         )
         self.input.pack(fill="both", expand=True)
         self.input.insert("1.0", "Paste or type text here, or capture a screen region / open an image.")
@@ -212,10 +225,10 @@ class ScreenTranslatorApp(tk.Tk):
         self.status = tk.StringVar(value="Ready · OCR runs on your device")
         tk.Label(footer, textvariable=self.status, fg=MUTED, bg=BG, anchor="w").pack(side="left", fill="x", expand=True)
         ttk.Button(footer, text="Translate  →", style="Accent.TButton", command=self.translate).pack(side="right")
-        tk.Label(root, text="Images and screen captures stay on this device. Audio / speech is not translated.", fg="#778395", bg=BG, font=("Segoe UI", 8)).pack(anchor="w", pady=(12, 0))
+        tk.Label(root, text="Images and screen captures stay on this device. Audio / speech is not translated.", fg="#778395", bg=BG, font=ui_font(self, 8)).pack(anchor="w", pady=(12, 0))
 
     def _section_label(self, parent, text):
-        tk.Label(parent, text=text, fg="#c1c9d6", bg=BG, font=("Segoe UI", 9, "bold")).pack(anchor="w")
+        tk.Label(parent, text=text, fg="#c1c9d6", bg=BG, font=ui_font(self, 9, "bold")).pack(anchor="w")
 
     def _clear_placeholder(self, _event):
         if self.input.get("1.0", "end-1c") == "Paste or type text here, or capture a screen region / open an image.":
