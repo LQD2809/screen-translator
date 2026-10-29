@@ -261,7 +261,7 @@ class ScreenTranslatorApp(tk.Tk):
         self.card.withdraw()
 
         def capture():
-            with mss.mss() as screen:
+            with mss.MSS() as screen:
                 shot = screen.grab(self.region)
                 return Image.frombytes("RGB", shot.size, shot.rgb)
 
