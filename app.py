@@ -148,6 +148,9 @@ class ScreenTranslatorApp(tk.Tk):
         self.option_add("*Font", ui_font(self, 10))
         self.region = None
         self.refresh_id = None
+        self.screen_monitoring = False
+        self.last_ocr_text = None
+        self.last_translation_signature = None
         self._style()
         self.card = TranslationCard(self)
         self._build()
@@ -206,6 +209,10 @@ class ScreenTranslatorApp(tk.Tk):
         action_panel.pack(fill="x", pady=(8, 18))
         ttk.Button(action_panel, text="▣  Capture screen region", style="Accent.TButton", command=self.select_region).pack(side="left")
         ttk.Button(action_panel, text="▧  Open image", command=self.open_image).pack(side="left", padx=8)
+        self.monitor_button = ttk.Button(
+            action_panel, text="▶  Monitor full screen", command=self.toggle_screen_monitor
+        )
+        self.monitor_button.pack(side="left", padx=8)
         self.refresh = tk.BooleanVar(value=False)
         ttk.Checkbutton(action_panel, text="Refresh every 2s (video subtitles)", variable=self.refresh, command=self.toggle_refresh).pack(side="right")
 
@@ -236,6 +243,7 @@ class ScreenTranslatorApp(tk.Tk):
             self.input.unbind("<FocusIn>")
 
     def select_region(self):
+        self._stop_screen_monitor(update_status=False)
         self.stop_refresh()
         self.withdraw()
         self.after(350, lambda: RegionSelector(self, self._region_selected))
@@ -255,19 +263,38 @@ class ScreenTranslatorApp(tk.Tk):
         if path:
             self._run_ocr(lambda: Image.open(path).convert("RGB"))
 
-    def _capture_and_ocr(self, refresh=False):
-        if not self.region:
+    def _capture_and_ocr(self, refresh=False, continuous=False, full_screen=False):
+        if not full_screen and not self.region:
             return
+        window_was_visible = self.winfo_viewable()
+        card_was_visible = self.card.winfo_viewable()
+        self.withdraw()
         self.card.withdraw()
+        self.status.set("Capturing screen…")
 
-        def capture():
-            with mss.MSS() as screen:
-                shot = screen.grab(self.region)
-                return Image.frombytes("RGB", shot.size, shot.rgb)
+        def capture_and_dispatch():
+            try:
+                with mss.MSS() as screen:
+                    bounds = screen.monitors[0] if full_screen else self.region.copy()
+                    shot = screen.grab(bounds)
+                    image = Image.frombytes("RGB", shot.size, shot.rgb)
+            except Exception as exc:
+                self._restore_after_capture(window_was_visible, card_was_visible)
+                self._show_error(f"Screen capture failed: {exc}", refresh, continuous)
+                return
 
-        self._run_ocr(capture, refresh=refresh)
+            self._restore_after_capture(window_was_visible, card_was_visible)
+            self._run_ocr(lambda: image, refresh=refresh, continuous=continuous)
 
-    def _run_ocr(self, image_factory, refresh=False):
+        self.after(180, capture_and_dispatch)
+
+    def _restore_after_capture(self, window_was_visible, card_was_visible):
+        if window_was_visible:
+            self.deiconify()
+        if card_was_visible:
+            self.card.deiconify()
+
+    def _run_ocr(self, image_factory, refresh=False, continuous=False):
         self.status.set("Reading text from image…")
 
         def worker():
@@ -275,23 +302,36 @@ class ScreenTranslatorApp(tk.Tk):
                 result = pytesseract.image_to_string(
                     image_factory(), lang=os.environ.get("TESSERACT_LANG", "eng")
                 ).strip()
-                self.after(0, lambda value=result: self._ocr_done(value, refresh))
+                self.after(0, lambda value=result: self._ocr_done(value, refresh, continuous))
             except Exception as exc:
-                self.after(0, lambda error=str(exc): self._show_error(f"OCR failed: {error}", refresh))
+                self.after(0, lambda error=str(exc): self._show_error(
+                    f"OCR failed: {error}", refresh, continuous
+                ))
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _ocr_done(self, result, refresh=False):
+    def _ocr_done(self, result, refresh=False, continuous=False):
         if result:
-            self.input.delete("1.0", "end")
-            self.input.insert("1.0", result)
-            self.translate(refresh=refresh)
+            signature = self._translation_signature(result)
+            if result != self.last_ocr_text:
+                self.last_ocr_text = result
+                self.input.delete("1.0", "end")
+                self.input.insert("1.0", result)
+            if signature == self.last_translation_signature:
+                self.status.set("No new text · monitoring continues")
+                self._schedule_refresh(refresh, continuous)
+            else:
+                self.translate(refresh=refresh, continuous=continuous, text=result)
         else:
-            self.status.set("No text detected · try a larger or clearer region")
-            self._schedule_refresh(refresh)
+            self.status.set("No text detected · monitoring continues")
+            self._schedule_refresh(refresh, continuous)
 
-    def translate(self, refresh=False):
-        text = self.input.get("1.0", "end").strip()
+    def _translation_signature(self, text):
+        provider = "local" if self.provider.get() == "Local (Argos)" else "libretranslate"
+        return (text, provider, self.source.get().strip(), self.target.get().strip())
+
+    def translate(self, refresh=False, continuous=False, text=None):
+        text = text if text is not None else self.input.get("1.0", "end").strip()
         if not text or text.startswith("Paste or type text here"):
             self.status.set("Enter or capture some text first.")
             return
@@ -304,30 +344,66 @@ class ScreenTranslatorApp(tk.Tk):
         source = self.source.get().strip()
         target = self.target.get().strip()
         if not source or not target:
-            self.status.set("Enter source and target language codes.")
+            self._show_error("Enter source and target language codes.", refresh, continuous)
             return
+        signature = self._translation_signature(text)
         self.status.set("Translating…")
 
         def worker():
             try:
                 result = engine.translate(text, source, target)
-                self.after(0, lambda value=result: self._translated(value, refresh))
+                self.after(0, lambda value=result: self._translated(
+                    value, signature, refresh, continuous
+                ))
             except Exception as exc:
-                self.after(0, lambda error=str(exc): self._show_error(f"Translation failed: {error}", refresh))
+                self.after(0, lambda error=str(exc): self._show_error(
+                    f"Translation failed: {error}", refresh, continuous
+                ))
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _translated(self, result, refresh=False):
+    def _translated(self, result, signature=None, refresh=False, continuous=False):
+        self.last_translation_signature = signature
         self.card.display(result)
         self.status.set("Translation ready · shown in floating card")
-        self._schedule_refresh(refresh)
+        self._schedule_refresh(refresh, continuous)
 
-    def _schedule_refresh(self, refresh):
-        if refresh and self.refresh.get() and self.region:
+    def _schedule_refresh(self, refresh=False, continuous=False):
+        if self.refresh_id is not None:
+            self.after_cancel(self.refresh_id)
+            self.refresh_id = None
+        if continuous and self.screen_monitoring:
+            self.refresh_id = self.after(
+                2000, lambda: self._capture_and_ocr(continuous=True, full_screen=True)
+            )
+        elif refresh and self.refresh.get() and self.region:
             self.refresh_id = self.after(2000, lambda: self._capture_and_ocr(refresh=True))
+
+    def toggle_screen_monitor(self):
+        if self.screen_monitoring:
+            self._stop_screen_monitor()
+            return
+        self.stop_refresh()
+        self.refresh.set(False)
+        self.screen_monitoring = True
+        self.monitor_button.configure(text="■  Stop monitoring")
+        self.status.set("Monitoring all visible screens · checking for changes every 2 seconds")
+        self._capture_and_ocr(continuous=True, full_screen=True)
+
+    def _stop_screen_monitor(self, update_status=True):
+        was_monitoring = self.screen_monitoring
+        self.screen_monitoring = False
+        if self.refresh_id is not None:
+            self.after_cancel(self.refresh_id)
+            self.refresh_id = None
+        if hasattr(self, "monitor_button"):
+            self.monitor_button.configure(text="▶  Monitor full screen")
+        if update_status and was_monitoring:
+            self.status.set("Screen monitoring stopped.")
 
     def toggle_refresh(self):
         if self.refresh.get():
+            self._stop_screen_monitor(update_status=False)
             if self.region:
                 self._capture_and_ocr(refresh=True)
             else:
@@ -341,9 +417,9 @@ class ScreenTranslatorApp(tk.Tk):
             self.after_cancel(self.refresh_id)
             self.refresh_id = None
 
-    def _show_error(self, message, refresh=False):
+    def _show_error(self, message, refresh=False, continuous=False):
         self.status.set(message)
-        self._schedule_refresh(refresh)
+        self._schedule_refresh(refresh, continuous)
 
 
 if __name__ == "__main__":
